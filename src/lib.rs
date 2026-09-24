@@ -15,12 +15,12 @@
 //! properties, which `xmip-core-identify` reads under `http.header.<name>`,
 //! and those never reach a Message. So the reading here names the keys the
 //! runtime's default promotion is to write, and this paragraph is the record
-//! of that. A header value reads as the text it was; a `Null` reads as nothing
-//! promoted and bytes are refused.
+//! of that. A header value reads through `route::routable`, as every context
+//! value a filter names does: as the text it was, a `Null` absent and bytes
+//! refused (ADR-0046, amended 2026-09-24).
 //!
 //! A route technology does not decide anything: it reads.
 
-use context::ContextValue;
 use message::Message;
 use route::{Source, SourceError};
 
@@ -61,25 +61,14 @@ impl Source for HeaderSource {
             .find(|(key, _)| key.eq_ignore_ascii_case(&wanted))
             .map(|(_, value)| value);
 
-        match found {
-            None | Some(ContextValue::Null) => Ok(None),
-            Some(ContextValue::Binary(bytes)) => Err(SourceError::new(
-                TECHNOLOGY,
-                name,
-                format!(
-                    "{wanted} holds {} bytes, and bytes are not routable as text",
-                    bytes.len()
-                ),
-            )),
-            Some(value) => Ok(route::text_of(value)),
-        }
+        route::routable(&wanted, found).map_err(|reason| SourceError::new(TECHNOLOGY, name, reason))
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use context::MessageContext;
+    use context::{ContextValue, MessageContext};
     use message::MessageTreatment;
     use route::{Predicate, Value};
     use xcore::MessageId;
