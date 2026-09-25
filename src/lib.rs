@@ -4,40 +4,34 @@
 //!
 //! A Subscription's filter names properties, and each property is read from
 //! one source. This source reads what the transport delivered beside the
-//! bytes: `header:<name>` is the header called `<name>`, whatever its case —
-//! `header:content-type` and `header:Content-Type` are one property, because
-//! HTTP, mail and every protocol that has headers say so. ADR-0046.
+//! bytes: `header:<protocol>.<name>` is the header called `<name>` that
+//! `<protocol>` carried. The name's case counts exactly where the protocol
+//! says it does: `header:http.content-type` and `header:http.Content-Type`
+//! are one property because HTTP folds field names, while
+//! `header:kafka.Trace-Id` and `header:kafka.trace-id` are two because Kafka
+//! does not — `context::property::HEADER_CASE_FOLDING` is the one table.
+//! `header:amqp.x-priority` is another protocol's. ADR-0046.
 //!
-//! **The convention this crate defines.** A header reaches the context under
-//! the key `header.<name>`, the name in lower case: `header.content-type`,
-//! `header.x-request-id`. Nothing in the estate wrote headers into the context
-//! before this technology existed — the arrival carries them as transport
-//! properties, which `xmip-core-identify` reads under `http.header.<name>`,
-//! and those never reach a Message. So the reading here names the keys the
-//! runtime's default promotion is to write, and this paragraph is the record
-//! of that. A header value reads through `route::routable`, as every context
-//! value a filter names does: as the text it was, a `Null` absent and bytes
-//! refused (ADR-0046, amended 2026-09-24).
+//! **Whose header it is, is part of its name.** A transport writes a header
+//! into the Message Context under `<protocol>.header.<name>`, built by
+//! `context::property::header`, and this reads it through the same builder
+//! (the owner, 2026-09-24; ADR-0019, amendment 2026-09-24). The protocol is
+//! the text before the first dot, since a protocol's word has none and a
+//! header's name may. A header value reads through `route::routable`, as
+//! every context value a filter names does: as the text it was, a `Null`
+//! absent and bytes refused (ADR-0046, amended 2026-09-24).
 //!
 //! A route technology does not decide anything: it reads.
 
+use context::property;
 use message::Message;
 use route::{Source, SourceError};
 
 /// The manifest leaf and the prefix a property carries.
 pub const TECHNOLOGY: &str = "header";
 
-/// The context key prefix a header is stored under, followed by the header's
-/// name in lower case.
-pub const KEY_PREFIX: &str = "header.";
-
-/// The context key a header of this name is stored under.
-#[must_use]
-pub fn key_of(name: &str) -> String {
-    format!("{KEY_PREFIX}{}", name.to_ascii_lowercase())
-}
-
-/// Reads `header:<name>` from the `header.<name>` context keys.
+/// Reads `header:<protocol>.<name>` from the `<protocol>.header.<name>`
+/// context keys.
 pub struct HeaderSource;
 
 impl Source for HeaderSource {
@@ -46,19 +40,24 @@ impl Source for HeaderSource {
     }
 
     fn read(&self, message: &Message, name: &str) -> Result<Option<String>, SourceError> {
-        if name.is_empty() {
+        let Some((protocol, header)) = name
+            .split_once('.')
+            .filter(|(protocol, header)| !protocol.is_empty() && !header.is_empty())
+        else {
             return Err(SourceError::new(
                 TECHNOLOGY,
                 name,
-                "a header name is needed after the prefix",
+                "a header is named by its protocol and its name: header:http.content-type",
             ));
-        }
+        };
 
-        let wanted = key_of(name);
+        let wanted = property::header(protocol, header);
+        // The builder already folded what the protocol folds, so the key
+        // is compared exactly: case is kept wherever it counts.
         let found = message
             .context()
             .iter()
-            .find(|(key, _)| key.eq_ignore_ascii_case(&wanted))
+            .find(|(key, _)| *key == wanted)
             .map(|(_, value)| value);
 
         route::routable(&wanted, found).map_err(|reason| SourceError::new(TECHNOLOGY, name, reason))
@@ -76,12 +75,34 @@ mod tests {
     fn message() -> Message {
         let context = MessageContext::new()
             .with_value(
-                key_of("Content-Type"),
+                property::header("http", "Content-Type"),
                 ContextValue::Text("application/json".into()),
             )
-            .with_value(key_of("Content-Length"), ContextValue::Integer(42))
-            .with_value(key_of("X-Empty"), ContextValue::Null)
-            .with_value(key_of("X-Bytes"), ContextValue::Binary(vec![1, 2]))
+            .with_value(
+                property::header("http", "Content-Length"),
+                ContextValue::Integer(42),
+            )
+            .with_value(property::header("http", "X-Empty"), ContextValue::Null)
+            .with_value(
+                property::header("http", "X-Bytes"),
+                ContextValue::Binary(vec![1, 2]),
+            )
+            .with_value(
+                property::header("amqp", "content-type"),
+                ContextValue::Text("text/plain".into()),
+            )
+            .with_value(
+                property::header("kafka", "trace.id"),
+                ContextValue::Text("4bf92f35".into()),
+            )
+            .with_value(
+                property::header("kafka", "Trace-Id"),
+                ContextValue::Text("upper".into()),
+            )
+            .with_value(
+                property::header("kafka", "trace-id"),
+                ContextValue::Text("lower".into()),
+            )
             .with_value("MessageType", ContextValue::Text("Order".into()));
         Message::received(
             MessageId::new(1),
@@ -96,36 +117,65 @@ mod tests {
     }
 
     #[test]
-    fn a_header_is_stored_under_its_lower_case_name() {
-        assert_eq!(key_of("Content-Type"), "header.content-type");
-        assert_eq!(key_of("x-request-id"), "header.x-request-id");
+    fn a_header_reads_whatever_case_the_filter_spells_it_in() {
+        let json = Some("application/json".to_string());
+        assert_eq!(read("http.content-type").expect("lower"), json);
+        assert_eq!(read("http.Content-Type").expect("canonical"), json);
+        assert_eq!(read("HTTP.CONTENT-TYPE").expect("upper"), json);
+        assert_eq!(
+            read("http.Content-Length").expect("number"),
+            Some("42".into())
+        );
     }
 
     #[test]
-    fn a_header_reads_whatever_case_the_filter_spells_it_in() {
-        let json = Some("application/json".to_string());
-        assert_eq!(read("content-type").expect("lower"), json);
-        assert_eq!(read("Content-Type").expect("canonical"), json);
-        assert_eq!(read("CONTENT-TYPE").expect("upper"), json);
-        assert_eq!(read("Content-Length").expect("number"), Some("42".into()));
+    fn kafka_keeps_two_spellings_apart_where_http_folds_them() {
+        assert_eq!(read("kafka.Trace-Id").expect("upper"), Some("upper".into()));
+        assert_eq!(read("kafka.trace-id").expect("lower"), Some("lower".into()));
+        assert_eq!(read("kafka.TRACE-ID").expect("neither"), None);
+        assert_eq!(read("http.CONTENT-type"), read("http.content-type"));
+    }
+
+    #[test]
+    fn the_protocol_named_is_the_protocol_read() {
+        assert_eq!(
+            read("amqp.content-type").expect("amqp"),
+            Some("text/plain".into())
+        );
+        assert_eq!(read("kafka.content-type").expect("kafka"), None);
+        // The protocol ends at the first dot; the header's name may hold one.
+        assert_eq!(
+            read("kafka.trace.id").expect("dotted"),
+            Some("4bf92f35".into())
+        );
     }
 
     #[test]
     fn a_header_that_was_not_delivered_reads_as_nothing_promoted() {
-        assert_eq!(read("Authorization").expect("readable"), None);
-        assert_eq!(read("X-Empty").expect("readable"), None);
+        assert_eq!(read("http.Authorization").expect("readable"), None);
+        assert_eq!(read("http.X-Empty").expect("readable"), None);
         // A plain context key is not a header, whatever its name.
-        assert_eq!(read("MessageType").expect("readable"), None);
+        assert_eq!(read("http.MessageType").expect("readable"), None);
     }
 
     #[test]
-    fn bytes_and_an_empty_name_are_refused_with_a_reason() {
-        let refused = read("X-Bytes").expect_err("bytes");
+    fn bytes_and_a_name_without_its_protocol_are_refused_with_a_reason() {
+        let refused = read("http.X-Bytes").expect_err("bytes");
         assert_eq!(refused.technology, "header");
-        assert!(refused.reason.contains("header.x-bytes holds 2 bytes"));
+        assert!(
+            refused.reason.contains("http.header.x-bytes holds 2 bytes"),
+            "{}",
+            refused.reason
+        );
 
-        let empty = read("").expect_err("no name");
-        assert!(empty.reason.contains("header name"));
+        for unnamed in ["", "content-type", ".content-type", "http."] {
+            let refused = read(unnamed).expect_err("no protocol");
+            assert!(
+                refused.reason.contains("its protocol"),
+                "{}",
+                refused.reason
+            );
+        }
     }
 
     #[test]
@@ -136,25 +186,25 @@ mod tests {
         let promoted = route::promote(
             &message(),
             &sources,
-            &["header:Content-Type", "header:Authorization"],
+            &["header:http.Content-Type", "header:http.Authorization"],
         )
         .expect("readable");
 
         assert_eq!(
-            promoted.get("header:Content-Type"),
+            promoted.get("header:http.Content-Type"),
             Some("application/json")
         );
-        assert_eq!(promoted.get("header:Authorization"), None);
+        assert_eq!(promoted.get("header:http.Authorization"), None);
         assert!(
-            Predicate::starts_with("header:Content-Type", "application/")
+            Predicate::starts_with("header:http.Content-Type", "application/")
                 .test(&promoted)
                 .passed()
         );
         assert_eq!(
-            Predicate::equals("header:Authorization", Value::Text("x".into()))
+            Predicate::equals("header:http.Authorization", Value::Text("x".into()))
                 .test(&promoted)
                 .reason(),
-            Some("nothing promoted header:Authorization")
+            Some("nothing promoted header:http.Authorization")
         );
     }
 }
