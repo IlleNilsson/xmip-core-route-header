@@ -1,6 +1,6 @@
 # xmip-core-route-header
 
-Header route technology: `header:<name>` reads what the transport delivered beside the bytes, from the `header.<name>` context keys, whatever the name's case. A technology of [xmip-core-route](https://github.com/IlleNilsson/xmip-core-route).
+Header route technology: `header:<protocol>.<name>` reads a header the transport delivered beside the bytes, from the `<protocol>.header.<name>` context key `context::property::header` builds; the name's case counts where the protocol's specification says it does. A technology of [xmip-core-route](https://github.com/IlleNilsson/xmip-core-route).
 
 ## Toolchain
 

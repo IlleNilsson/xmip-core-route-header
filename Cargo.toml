@@ -7,7 +7,7 @@ version = "0.1.0"
 edition = "2024"
 license = "AGPL-3.0-or-later"
 repository = "https://github.com/IlleNilsson/xmip-core-route-header"
-description = "Header route technology: `header:<name>` reads what the transport delivered beside the bytes, from the `header.<name>` context keys, whatever the name's case. A xmip-core-route technology."
+description = "Header route technology: `header:<protocol>.<name>` reads a header the transport delivered beside the bytes, from the `<protocol>.header.<name>` context key `context::property::header` builds; the name's case counts where the protocol's specification says it does. A xmip-core-route technology."
 publish = false
 
 [lib]
