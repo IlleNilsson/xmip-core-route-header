@@ -69,43 +69,44 @@ impl Reading for Key {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use context::{ContextValue, MessageContext};
+    use context::MessageContext;
     use message::MessageTreatment;
     use route::{Gathering, Promoted, SourceError};
     use xcore::MessageId;
+    use xcore::ScalarValue;
 
     fn message() -> Message {
         let context = MessageContext::new()
             .with_value(
                 property::header("http", "Content-Type"),
-                ContextValue::Text("application/json".into()),
+                ScalarValue::Text("application/json".into()),
             )
             .with_value(
                 property::header("http", "Content-Length"),
-                ContextValue::Integer(42),
+                ScalarValue::Integer(42),
             )
-            .with_value(property::header("http", "X-Empty"), ContextValue::Null)
+            .with_value(property::header("http", "X-Empty"), ScalarValue::Null)
             .with_value(
                 property::header("http", "X-Bytes"),
-                ContextValue::Binary(vec![1, 2]),
+                ScalarValue::Binary(vec![1, 2]),
             )
             .with_value(
                 property::header("amqp", "content-type"),
-                ContextValue::Text("text/plain".into()),
+                ScalarValue::Text("text/plain".into()),
             )
             .with_value(
                 property::header("kafka", "trace.id"),
-                ContextValue::Text("4bf92f35".into()),
+                ScalarValue::Text("4bf92f35".into()),
             )
             .with_value(
                 property::header("kafka", "Trace-Id"),
-                ContextValue::Text("upper".into()),
+                ScalarValue::Text("upper".into()),
             )
             .with_value(
                 property::header("kafka", "trace-id"),
-                ContextValue::Text("lower".into()),
+                ScalarValue::Text("lower".into()),
             )
-            .with_value("MessageType", ContextValue::Text("Order".into()));
+            .with_value("MessageType", ScalarValue::Text("Order".into()));
         Message::received(
             MessageId::new(1),
             Vec::new(),
