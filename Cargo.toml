@@ -21,6 +21,8 @@ message = { package = "xmip-core-message", git = "https://github.com/IlleNilsson
 context = { package = "xmip-core-context", git = "https://github.com/IlleNilsson/xmip-core-context", branch = "main" }
 
 [dev-dependencies]
+# A test states the filter it proves as the expression a Subscription holds.
+path = { package = "xmip-core-path", git = "https://github.com/IlleNilsson/xmip-core-path", branch = "main" }
 # Only the tests build a Message from its parts.
 xcore = { package = "xmip-core", git = "https://github.com/IlleNilsson/xmip-core", branch = "main" }
 
@@ -34,3 +36,6 @@ missing_errors_doc = "warn"
 missing_panics_doc = "warn"
 unwrap_used = "warn"
 expect_used = "allow"
+
+[profile.dev.package."*"]
+opt-level = 3
