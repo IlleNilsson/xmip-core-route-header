@@ -25,7 +25,8 @@
 
 use context::property;
 use message::Message;
-use route::{Source, SourceError};
+use path::Content;
+use route::{Reading, Source};
 
 /// The manifest leaf and the prefix a property carries.
 pub const TECHNOLOGY: &str = "header";
@@ -39,28 +40,29 @@ impl Source for HeaderSource {
         TECHNOLOGY
     }
 
-    fn read(&self, message: &Message, name: &str) -> Result<Option<String>, SourceError> {
+    /// The context key, built once: the builder folds what the protocol
+    /// folds, so every Message after is one exact lookup, and case is kept
+    /// wherever it counts.
+    fn compile(&self, name: &str) -> Result<Box<dyn Reading>, String> {
         let Some((protocol, header)) = name
             .split_once('.')
             .filter(|(protocol, header)| !protocol.is_empty() && !header.is_empty())
         else {
-            return Err(SourceError::new(
-                TECHNOLOGY,
-                name,
-                "a header is named by its protocol and its name: header:http.content-type",
-            ));
+            return Err(
+                "a header is named by its protocol and its name: header:http.content-type"
+                    .to_string(),
+            );
         };
+        Ok(Box::new(Key(property::header(protocol, header))))
+    }
+}
 
-        let wanted = property::header(protocol, header);
-        // The builder already folded what the protocol folds, so the key
-        // is compared exactly: case is kept wherever it counts.
-        let found = message
-            .context()
-            .iter()
-            .find(|(key, _)| *key == wanted)
-            .map(|(_, value)| value);
+/// The context key a header is delivered under.
+struct Key(String);
 
-        route::routable(&wanted, found).map_err(|reason| SourceError::new(TECHNOLOGY, name, reason))
+impl Reading for Key {
+    fn read(&self, message: &Message, _: Option<&Content<'_>>) -> Result<Option<String>, String> {
+        route::routable(&self.0, message.context().get(&self.0))
     }
 }
 
@@ -69,6 +71,7 @@ mod tests {
     use super::*;
     use context::{ContextValue, MessageContext};
     use message::MessageTreatment;
+    use route::{Gathering, Promoted, SourceError};
     use xcore::MessageId;
 
     fn message() -> Message {
@@ -111,8 +114,15 @@ mod tests {
         )
     }
 
+    fn promote(properties: &[&str]) -> Result<Promoted, SourceError> {
+        Gathering::new(&[&HeaderSource], properties).promote(&message())
+    }
+
     fn read(name: &str) -> Result<Option<String>, SourceError> {
-        HeaderSource.read(&message(), name)
+        let property = format!("header:{name}");
+        Ok(promote(&[property.as_str()])?
+            .get(&property)
+            .map(str::to_string))
     }
 
     #[test]
@@ -181,13 +191,8 @@ mod tests {
     fn the_technology_is_header_and_promote_reads_the_prefixed_property() {
         assert_eq!(HeaderSource.technology(), "header");
 
-        let sources: [&dyn Source; 1] = [&HeaderSource];
-        let promoted = route::promote(
-            &message(),
-            &sources,
-            &["header:http.Content-Type", "header:http.Authorization"],
-        )
-        .expect("readable");
+        let promoted =
+            promote(&["header:http.Content-Type", "header:http.Authorization"]).expect("readable");
 
         assert_eq!(
             promoted.get("header:http.Content-Type"),
