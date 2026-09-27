@@ -15,14 +15,14 @@ path = "src/lib.rs"
 
 [dependencies]
 # A Technology depends on its parent Capability, never the reverse
-# (repository-model.md). The Source trait lives in route and takes a Message.
+# (repository-model.md). The Source trait lives in route; a compiled reading
+# takes a Message and its content, parsed once, which is path's.
 route = { package = "xmip-core-route", git = "https://github.com/IlleNilsson/xmip-core-route", branch = "main" }
+path = { package = "xmip-core-path", git = "https://github.com/IlleNilsson/xmip-core-path", branch = "main" }
 message = { package = "xmip-core-message", git = "https://github.com/IlleNilsson/xmip-core-message", branch = "main" }
 context = { package = "xmip-core-context", git = "https://github.com/IlleNilsson/xmip-core-context", branch = "main" }
 
 [dev-dependencies]
-# A test states the filter it proves as the expression a Subscription holds.
-path = { package = "xmip-core-path", git = "https://github.com/IlleNilsson/xmip-core-path", branch = "main" }
 # Only the tests build a Message from its parts.
 xcore = { package = "xmip-core", git = "https://github.com/IlleNilsson/xmip-core", branch = "main" }
 
