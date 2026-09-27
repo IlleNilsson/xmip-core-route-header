@@ -69,7 +69,6 @@ mod tests {
     use super::*;
     use context::{ContextValue, MessageContext};
     use message::MessageTreatment;
-    use route::{Predicate, Value};
     use xcore::MessageId;
 
     fn message() -> Message {
@@ -196,13 +195,15 @@ mod tests {
         );
         assert_eq!(promoted.get("header:http.Authorization"), None);
         assert!(
-            Predicate::starts_with("header:http.Content-Type", "application/")
-                .test(&promoted)
-                .passed()
+            path::expression::Expression::parse("header:http.Content-Type like 'application/%'")
+                .expect("compiles")
+                .evaluate(&promoted)
+                .holds()
         );
         assert_eq!(
-            Predicate::equals("header:http.Authorization", Value::Text("x".into()))
-                .test(&promoted)
+            path::expression::Expression::parse("header:http.Authorization = 'x'")
+                .expect("compiles")
+                .evaluate(&promoted)
                 .reason(),
             Some("nothing promoted header:http.Authorization")
         );
