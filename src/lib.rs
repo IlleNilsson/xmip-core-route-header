@@ -201,13 +201,13 @@ mod tests {
         );
         assert_eq!(promoted.get("header:http.Authorization"), None);
         assert!(
-            path::expression::Expression::parse("header:http.Content-Type like 'application/%'")
+            expression::Expression::parse("header:http.Content-Type like 'application/%'")
                 .expect("compiles")
                 .evaluate(&promoted)
                 .holds()
         );
         assert_eq!(
-            path::expression::Expression::parse("header:http.Authorization = 'x'")
+            expression::Expression::parse("header:http.Authorization = 'x'")
                 .expect("compiles")
                 .evaluate(&promoted)
                 .reason(),
